@@ -138,7 +138,7 @@ class LoginView(IdempotentSessionWizardView):
                                        timedelta(days=settings.TWO_FACTOR_TRUSTED_DAYS))
                 salt = hash(settings.TWO_FACTOR_SALT + str(user.id) +
                             agent_format(self.request.META['HTTP_USER_AGENT']))
-                response.set_signed_cookie(key='rememberdevice', value=login_good_until,
+                response.set_signed_cookie(key=f'rememberdevice-{user.id}', value=login_good_until,
                                            salt=str(salt),
                                            max_age=settings.TWO_FACTOR_TRUSTED_DAYS * (3600 * 24),
                                            expires=login_good_until, path=settings.LOGIN_URL, domain=None,
@@ -246,14 +246,14 @@ class LoginView(IdempotentSessionWizardView):
         if not user:
             return True
         end_valid_login = None
-        if not request.COOKIES.get('rememberdevice'):
+        if not request.COOKIES.get(f'rememberdevice-{user.id}'):
             return True
         trusted_agent = self.get_trusted_agent(request, user)
         if not trusted_agent:
             return True
         try:
             salt = hash(settings.TWO_FACTOR_SALT + str(user.id) + agent_format(self.request.META['HTTP_USER_AGENT']))
-            end_valid_login = request.get_signed_cookie('rememberdevice', salt=str(salt))
+            end_valid_login = request.get_signed_cookie(f'rememberdevice-{user.id}', salt=str(salt))
         except (BadSignature, SignatureExpired):
             return True
         end_valid_login_dt = datetime.strptime(end_valid_login, '%Y-%m-%d')
@@ -299,7 +299,6 @@ class SetupView(IdempotentSessionWizardView):
     session_key_name = 'django_two_factor-qr_secret_key'
     initial_dict = {}
     form_list = (
-        ('welcome', Form),
         ('method', MethodForm),
         ('generator', TOTPDeviceForm),
         ('sms', PhoneNumberForm),
@@ -307,6 +306,8 @@ class SetupView(IdempotentSessionWizardView):
         ('validation', DeviceValidationForm),
         ('yubikey', YubiKeyDeviceForm),
     )
+    # allows us to skip the welcome step
+    form_list = (('welcome', Form), *form_list) if not getattr(settings, 'TWO_FACTOR_SKIP_WELCOME', False) else form_list
     condition_dict = {
         'generator': lambda self: self.get_method() == 'generator',
         'call': lambda self: self.get_method() == 'call',
